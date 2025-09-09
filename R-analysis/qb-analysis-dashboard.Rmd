@@ -1,0 +1,64 @@
+---
+title: "QB Performance Analysis Dashboard"
+output: html_document
+runtime: shiny
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(shiny)
+library(ggplot2)
+library(dplyr)
+library(plotly)
+library(readr)
+qb_zscore_composite_2001_2024 <- read_csv("qb_zscore_composite_2001_2024.csv")
+```
+```{r inputs, echo=FALSE}
+selectInput("player", "Select QB:",
+            choices = unique(qb_zscore_composite_2001_2024$player_name))
+            
+sliderInput("seasons", "Season Range:",
+            min = 2001, max = 2024, value = c(2001, 2024),
+            step = 1, sep = "")
+            
+selectInput("metric", "Choose Metric:",
+            choices = c("Composite Score" = "qb_composite_score_z",
+                        "Passing Yards/Game" = "passing_yards_per_game",
+                        "Passing TDs/Game" = "passing_tds_per_game",
+                        "Rushing Yards/Game" = "rushing_yards_per_game",
+                        "Rushing TDs/Game" = "rushing_tds_per_game",
+                        "Completion Percentage" = "completion_percentage",
+                        "Interceptions/Game" = "interceptions_per_game",
+                        "Value Above Replacement" = "qb_value_above_replacement_z"))
+```
+
+```{r plot-output, echo=FALSE}
+renderPlot({
+  # Filter data based on user selections
+  filtered_data <- qb_zscore_composite_2001_2024 %>%
+    filter(player_name == input$player,
+           season >= input$seasons[1],
+           season <= input$seasons[2])
+  
+  # Create plot based on selected metric
+  ggplot(filtered_data, aes(x = season, y = .data[[input$metric]])) +
+    geom_line(color = "blue", size = 1.2) +
+    geom_point(color = "red", size = 2) +
+    labs(title = paste(input$player, "Performance Over Time"),
+         x = "Season",
+         y = input$metric) +
+    theme_minimal()
+})
+```
+
+```{r table-output, echo=FALSE}
+renderTable({
+  # Show filtered data in a table
+  qb_zscore_composite_2001_2024 %>%
+    filter(player_name == input$player,
+           season >= input$seasons[1],
+           season <= input$seasons[2]) %>%
+    select(season, player_name, !!sym(input$metric)) %>%
+    arrange(desc(season))
+})
+```

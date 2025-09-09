@@ -1,0 +1,10 @@
+name: r-analysis
+title:
+username: bruceg-analytics
+account: bruceg-analytics
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 15387434
+bundleId: 10879618
+url: https://bruceg-analytics.shinyapps.io/r-analysis/
+version: 1
