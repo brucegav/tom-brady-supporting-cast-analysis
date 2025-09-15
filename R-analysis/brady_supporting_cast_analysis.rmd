@@ -1,0 +1,224 @@
+---
+title: "Brady Supporting Cast Analysis"
+output: github_document
+---
+
+# Brady Supporting Cast Analysis
+
+## Setup with Data Loading
+
+```{r setup, message=FALSE, warning=FALSE}
+library(tidyverse)
+library(nflfastR)
+
+cat("Data available:\n")
+cat("QB data:", nrow(qb_final), "seasons\n")
+cat("Supporting cast data:", nrow(supporting_cast_final), "team seasons\n")
+```
+
+## Brady Career Overview
+
+```{r brady-overview}
+#filter to teams Brady played for and when
+brady_teams_info <- supporting_cast_final %>%
+  #identify Brady's teams by season
+  filter(
+    (posteam == "NE" & season >= 2011 & season <= 2019) | #Patriots years
+    (posteam == "TB" & season >= 2020 & season <= 2022)   # Buccaneers years
+  ) %>%
+  mutate(
+    qb_name = case_when(
+      posteam == "NE" ~ "Tom Brady (Patriots)",
+      posteam == "TB" ~ "Tom Brady (Buccaneers)",
+      TRUE ~ "Unknown"
+    )
+  ) %>%
+  arrange(season)
+
+cat("Brady's teams in dataset:\n")
+print(brady_teams_info[c("season", "posteam", "qb_name")])
+
+#basic supporting cast stats for Brady's teams
+brady_supporting_cast_summary <- brady_teams_info %>%
+  summarise(
+    seasons_analyzed = n(),
+    avg_supporting_cast_score = round(mean(supporting_cast_composite, na.rm = TRUE), 3),
+    best_supporting_cast = round(max(supporting_cast_composite, na.rm = TRUE), 3),
+    worst_supporting_cast = round(min(supporting_cast_composite, na.rm = TRUE), 3),
+    .groups = 'drop'
+)
+
+cat("\nBrady Supporting Cast Summary (2011-2022):\n")
+print(brady_supporting_cast_summary)
+```
+
+## Supporting Cast Scores by Season
+
+```{r brady-by-season}
+#Brady's supporting cast scores by season
+brady_annual_scores <- brady_teams_info %>%
+  select(season, posteam, qb_name, supporting_cast_composite,
+         rushing_unit_score, receiving_unit_score, defense_unit_score) %>%
+  mutate(across(where(is.numeric), ~ round(.x, 3)))
+
+cat("Brady's annual supporting cast scores:\n")
+print(brady_annual_scores)
+
+#Calculate Brady's supporting cast percentile rank each season
+brady_with_percentiles <- supporting_cast_final %>%
+  group_by(season) %>%
+  mutate(
+    supporting_cast_percentile = round(100 * percent_rank(supporting_cast_composite), 1)
+  ) %>%
+  ungroup() %>%
+  filter(
+    (posteam == "NE" & season >= 2011 & season <= 2019) |
+    (posteam == "TB" & season >= 2020 & season <= 2022)
+  ) %>%
+  select(season, posteam, supporting_cast_composite, supporting_cast_percentile) %>%
+  arrange(season)
+
+cat("\nBrady's Supporting Cast Percentile Rankings:\n")
+print(brady_with_percentiles)
+```
+
+## Visual Analysis
+
+```{r brady-visualization}
+#create plot of Brady's supporting cast over time
+brady_plot <- brady_teams_info %>%
+  ggplot(aes(x = season, y = supporting_cast_composite)) +
+  geom_line(size = 1.2, color = "darkblue") +
+  geom_point(aes(color = posteam), size = 4) +
+  scale_color_manual(values = c("NE" = "red", "TB" = "orange"), 
+                     labels = c("New England Patriots", "Tampa Bay Buccaneers")) +
+  geom_hline(yintercept = 0, linetype = "dashed", alpha = 0.5) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(size = 14, face = "bold"),
+    plot.subtitle = element_text(size = 12),
+    legend.position = "bottom",
+    plot.background = element_rect(fill = "white", color = NA),
+    panel.background = element_rect(fill = "white", color = NA)
+  ) +
+  labs(
+    title = "Tom Brady's Supporting Cast Quality (2011-2022)",
+    subtitle = "Composite score: 30% Rushing + 40% Receiving + 30% Defense",
+    x = "Season",
+    y = "Supporting Cast Composite Score",
+    color = "Team",
+    caption = "Higher scores indicate better supporting cast performance"
+  )
+
+print(brady_plot)
+
+# Save the plot
+ggsave("outputs/brady_supporting_cast_analysis.png", 
+       plot = brady_plot, width = 12, height = 8, dpi = 300, bg = "white")
+```
+
+## Performance vs Supporting Cast Correlation
+
+```{r brady-performance-correlation}
+# Get Brady's QB performance data
+brady_qb_performance <- qb_final %>%
+  filter(passer_player_name == "T.Brady") %>%
+  select(season, qb_composite, epa_per_play, success_rate, cpoe) %>%
+  arrange(season)
+
+# Merge Brady's QB performance with his supporting cast scores
+brady_complete <- brady_with_percentiles %>%
+  left_join(brady_qb_performance, by = "season") %>%
+  filter(!is.na(qb_composite))
+
+cat("Brady's Performance vs Supporting Cast:\n")
+print(brady_complete %>% 
+      select(season, posteam, supporting_cast_composite, qb_composite) %>%
+      mutate(across(where(is.numeric), ~ round(.x, 3))))
+
+# Calculate correlation
+if(nrow(brady_complete) > 2) {
+  correlation <- cor(brady_complete$supporting_cast_composite, 
+                    brady_complete$qb_composite, use = "complete.obs")
+  cat("\nCorrelation between Brady's QB performance and supporting cast quality:", 
+      round(correlation, 3), "\n")
+}
+
+# Create scatter plot
+if(nrow(brady_complete) > 2) {
+  correlation_plot <- brady_complete %>%
+    ggplot(aes(x = supporting_cast_composite, y = qb_composite)) +
+    geom_point(aes(color = posteam), size = 4) +
+    geom_smooth(method = "lm", se = TRUE, alpha = 0.3) +
+    scale_color_manual(values = c("NE" = "red", "TB" = "orange")) +
+    theme_minimal() +
+    theme(
+      plot.background = element_rect(fill = "white", color = NA),
+      panel.background = element_rect(fill = "white", color = NA)
+    ) +
+    labs(
+      title = "Brady: QB Performance vs Supporting Cast Quality",
+      x = "Supporting Cast Composite Score",
+      y = "QB Composite Score",
+      color = "Team"
+    )
+  
+  print(correlation_plot)
+  
+  ggsave("outputs/brady_performance_vs_supporting_cast.png", 
+         plot = correlation_plot, width = 10, height = 8, dpi = 300, bg = "white")
+}
+```
+
+## Key Insights and Findings
+
+```{r brady-findings}
+# Best and worst supporting cast seasons for Brady
+if(nrow(brady_with_percentiles) > 0) {
+  best_season <- brady_with_percentiles[which.max(brady_with_percentiles$supporting_cast_composite), ]
+  worst_season <- brady_with_percentiles[which.min(brady_with_percentiles$supporting_cast_composite), ]
+  
+  cat("=== Brady Supporting Cast Analysis Findings ===\n\n")
+  
+  cat("Best Supporting Cast Season:\n")
+  cat("Year:", best_season$season, "Team:", best_season$posteam, "\n")
+  cat("Score:", best_season$supporting_cast_composite, 
+      "(", best_season$supporting_cast_percentile, "th percentile)\n\n")
+  
+  cat("Worst Supporting Cast Season:\n") 
+  cat("Year:", worst_season$season, "Team:", worst_season$posteam, "\n")
+  cat("Score:", worst_season$supporting_cast_composite,
+      "(", worst_season$supporting_cast_percentile, "th percentile)\n\n")
+  
+  # Patriots vs Bucs comparison
+  patriots_avg <- brady_with_percentiles %>% 
+    filter(posteam == "NE") %>% 
+    summarise(avg_score = mean(supporting_cast_composite))
+  
+  bucs_avg <- brady_with_percentiles %>% 
+    filter(posteam == "TB") %>% 
+    summarise(avg_score = mean(supporting_cast_composite))
+  
+  cat("Team Comparison:\n")
+  cat("Patriots average (2011-2019):", round(patriots_avg$avg_score, 3), "\n")
+  cat("Buccaneers average (2020-2022):", round(bucs_avg$avg_score, 3), "\n")
+  cat("Difference:", round(bucs_avg$avg_score - patriots_avg$avg_score, 3), "\n\n")
+  
+  # Performance implications
+  if(exists("brady_complete") && nrow(brady_complete) > 2) {
+    cat("Performance Analysis:\n")
+    cat("Years with above-average supporting cast (>0):", 
+        sum(brady_complete$supporting_cast_composite > 0), "\n")
+    cat("Years with below-average supporting cast (<0):", 
+        sum(brady_complete$supporting_cast_composite < 0), "\n")
+    
+    # Compare QB performance in good vs poor supporting cast years
+    good_cast_performance <- mean(brady_complete$qb_composite[brady_complete$supporting_cast_composite > 0], na.rm = TRUE)
+    poor_cast_performance <- mean(brady_complete$qb_composite[brady_complete$supporting_cast_composite <= 0], na.rm = TRUE)
+    
+    cat("Average QB performance with good supporting cast:", round(good_cast_performance, 3), "\n")
+    cat("Average QB performance with poor supporting cast:", round(poor_cast_performance, 3), "\n")
+    cat("Performance difference:", round(good_cast_performance - poor_cast_performance, 3), "\n")
+  }
+}
+```
