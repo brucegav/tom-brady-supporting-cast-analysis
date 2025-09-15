@@ -1,0 +1,197 @@
+---
+title: "Context-Aware QB Performance Analysis (2011-2024)"
+output: github_document
+---
+
+## Overview
+
+Advanced NFL quarterback analysis using context-aware metrics and a composite scoring system. Analysis covers 2011-2024 seasons with a 350+ attempts threshold to ensure reliable sample sizes.
+
+## Data Collection and Processing
+
+```{r setup, message=FALSE, warning=FALSE}
+# QB Analysis - Regular Season Only (2011-2024)
+
+library(nflfastR)
+library(tidyverse)
+
+# Load and filter play-by-play data
+qualified_plays <- load_pbp(seasons = 2011:2024) %>%
+  filter(
+    season_type == "REG",    # ADDED: Regular season only
+    play_type == "pass",
+    rush_attempt == 0,
+    wp >= 0.1 & wp <= 0.9,  # Eliminate garbage time
+    !is.na(epa),
+    !is.na(air_yards),
+    sack == 0,
+    qb_spike == 0,
+    qb_kneel == 0
+  )
+
+cat("QB Analysis")
+cat("Loaded", nrow(qualified_plays), "qualified passing plays (regular season only)\n")
+cat("Date range:", min(qualified_plays$season), "to", max(qualified_plays$season), "\n\n")
+
+# Calculate season-level QB statistics with 350+ attempts threshold
+qb_season_stats <- qualified_plays %>%
+  group_by(passer_player_id, passer_player_name, season) %>%
+  summarize(
+    pass_attempts = n(),
+    epa_per_play = mean(epa, na.rm = TRUE),
+    success_rate = mean(success, na.rm = TRUE),
+    cpoe = mean(cpoe, na.rm = TRUE),
+    air_epa_per_play = mean(air_epa, na.rm = TRUE),
+    interception_rate = sum(interception, na.rm = TRUE) / n(),
+    .groups = 'drop'
+  ) %>%
+  filter(pass_attempts >= 350)
+
+cat("QB seasons analyzed (regular season only):", nrow(qb_season_stats), "\n")
+cat("Average QBs per season:", round(nrow(qb_season_stats) / 14, 1), "\n\n")
+
+# Calculate z-scores by season
+qb_with_zscores <- qb_season_stats %>%
+  group_by(season) %>%
+  mutate(
+    z_epa_per_play = (epa_per_play - mean(epa_per_play)) / sd(epa_per_play),
+    z_success_rate = (success_rate - mean(success_rate)) / sd(success_rate),
+    z_cpoe = (cpoe - mean(cpoe)) / sd(cpoe),
+    z_air_epa_per_play = (air_epa_per_play - mean(air_epa_per_play)) / sd(air_epa_per_play),
+    z_interception_rate = -1 * (interception_rate - mean(interception_rate)) / sd(interception_rate)
+  ) %>%
+  ungroup()
+
+# Calculate composite score and value above replacement
+qb_final <- qb_with_zscores %>%
+  mutate(
+    qb_composite = 0.40 * z_epa_per_play + 
+                   0.25 * z_success_rate + 
+                   0.20 * z_cpoe + 
+                   0.15 * z_air_epa_per_play + 
+                   0.10 * z_interception_rate
+  ) %>%
+  group_by(season) %>%
+  mutate(
+    qb_value_above_replacement = qb_composite - quantile(qb_composite, 0.2, na.rm = TRUE)
+  ) %>%
+  ungroup()
+
+# Validation: Check 2022 rankings
+cat("=== 2022 Rankings Validation ===\n")
+rankings_2022 <- qb_final %>%
+  filter(season == 2022) %>%
+  arrange(desc(qb_composite)) %>%
+  select(passer_player_name, pass_attempts, qb_composite) %>%
+  head(5)
+
+print(rankings_2022)
+
+# Brady analysis
+brady_final <- qb_final %>% 
+  filter(passer_player_name == "T.Brady") %>%
+  arrange(season)
+
+cat("\n=== Tom Brady Regular Season Analysis ===\n")
+if(nrow(brady_final) > 0) {
+  print(brady_final[c("season", "pass_attempts", "qb_composite")])
+} else {
+  cat("No Brady data found\n")
+}
+
+cat("\n=== Dataset Summary ===\n")
+cat("Regular season games only: TRUE\n")
+cat("Timeframe: 2011-2024\n") 
+cat("Attempts threshold: 350+\n")
+cat("Total QB seasons:", nrow(qb_final), "\n")
+```
+
+## Tom Brady Career Analysis
+
+```{r brady-analysis}
+# Brady's career in the analysis period
+brady_final <- qb_final %>% 
+  filter(passer_player_name == "T.Brady") %>%
+  arrange(season)
+
+cat("Tom Brady seasons analyzed:", nrow(brady_final), "\n")
+cat("Average composite score:", round(mean(brady_final$qb_composite, na.rm = TRUE), 3), "\n")
+
+# Brady's historical rankings
+brady_rankings <- qb_final %>%
+  group_by(season) %>%
+  mutate(composite_rank = rank(desc(qb_composite))) %>%
+  filter(passer_player_name == "T.Brady") %>%
+  select(season, qb_composite, composite_rank, qb_value_above_replacement) %>%
+  arrange(season)
+
+print(brady_rankings)
+```
+
+## Top 10 Rankings by Season
+
+```{r top-rankings}
+# Generate top 10 QB rankings for each season
+top_10_by_season <- qb_final %>%
+  filter(!is.na(qb_composite)) %>%
+  group_by(season) %>%
+  mutate(composite_rank = rank(desc(qb_composite))) %>%
+  filter(composite_rank <= 10) %>%
+  arrange(season, composite_rank) %>%
+  select(season, passer_player_name, composite_rank, qb_composite, pass_attempts) %>%
+  ungroup()
+
+# Show sample years
+cat("2022 Top 5 (validation - Tannehill should be eliminated):\n")
+top_10_by_season %>% 
+  filter(season == 2022, composite_rank <= 5) %>%
+  print()
+
+cat("\n2023 Top 5:\n")
+top_10_by_season %>% 
+  filter(season == 2023, composite_rank <= 5) %>%
+  print()
+```
+
+## Visualization
+
+```{r plot-output, fig.width=12, fig.height=16}
+# Top 5 QBs by season visualization
+top_5_by_season <- top_10_by_season %>% 
+  filter(composite_rank <= 5)
+
+ggplot(top_5_by_season, aes(x = reorder(passer_player_name, -qb_composite), y = qb_composite)) +
+  geom_col(fill = "steelblue") +
+  facet_wrap(~season, scales = "free_x", ncol = 3) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 8),
+    strip.text = element_text(size = 10, face = "bold")
+  ) +
+  labs(
+    title = "Top 5 QB Composite Scores by Season (2011-2024)",
+    subtitle = "350+ attempts threshold, context-aware metrics",
+    x = "Player", 
+    y = "Composite Score"
+  )
+```
+
+## Summary Statistics
+
+```{r summary-stats}
+# Final dataset characteristics
+cat("Dataset Summary:\n")
+cat("Timeframe:", min(qb_final$season), "to", max(qb_final$season), "\n")
+cat("Attempts threshold: 350+\n")
+cat("Total QB seasons:", nrow(qb_final), "\n\n")
+
+# Attempts distribution
+cat("Pass attempts distribution:\n")
+summary(qb_final$pass_attempts)
+
+cat("\nQB count by season:\n")
+yearly_counts <- qb_final %>% 
+  group_by(season) %>% 
+  summarise(qb_count = n(), .groups = 'drop')
+print(yearly_counts)
+```

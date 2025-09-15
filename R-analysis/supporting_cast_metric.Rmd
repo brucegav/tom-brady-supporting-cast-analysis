@@ -1,0 +1,409 @@
+---
+title: "Team Level Supporting Cast Metric (2011-2024 Regular Season)"
+output: github_document
+---
+
+```{r setup, include=FALSE}
+# Team-Level Supporting Cast Metrics Analysis (2011-2024)
+
+library(nflfastR)
+library(tidyverse)
+
+cat("Loading play-by-play data for team analysis...\n\n")
+
+# Load comprehensive play-by-play data (regular season only)
+team_pbp_data <- load_pbp(seasons = 2011:2024) %>%
+  filter(
+    season_type == "REG",
+    !is.na(posteam),
+    !is.na(defteam)
+  )
+
+# TEAM RUSHING METRICS
+cat("Calculating Team Rushing Metrics\n")
+
+team_rushing <- team_pbp_data %>%
+  filter(
+    play_type == "run",
+    !is.na(rushing_yards),
+    !is.na(epa),
+    wp >= 0.1 & wp <= 0.9  # Same garbage time filter as QB analysis
+  ) %>%
+  group_by(season, posteam) %>%
+  summarise(
+    # Volume metrics
+    rush_attempts = n(),
+    total_rush_yards = sum(rushing_yards, na.rm = TRUE),
+    
+    # Efficiency metrics
+    rush_epa_per_attempt = mean(epa, na.rm = TRUE),
+    rush_success_rate = mean(success, na.rm = TRUE),
+    rush_yards_per_attempt = mean(rushing_yards, na.rm = TRUE),
+    
+    # Situational metrics
+    rush_first_down_rate = mean(first_down_rush, na.rm = TRUE),
+    rush_touchdown_rate = sum(rush_touchdown, na.rm = TRUE) / n(),
+    fumble_rate = sum(fumble_lost, na.rm = TRUE) / n(),
+    
+    # Red zone rushing (inside 20)
+    rz_rush_attempts = sum(yardline_100 <= 20, na.rm = TRUE),
+    rz_rush_td_rate = ifelse(sum(yardline_100 <= 20, na.rm = TRUE) > 0,
+                            sum(rush_touchdown & yardline_100 <= 20, na.rm = TRUE) / 
+                            sum(yardline_100 <= 20, na.rm = TRUE), NA),
+    
+    .groups = 'drop'
+  )
+
+# TEAM RECEIVING METRICS  
+
+
+cat("Calculating Team Receiving Metrics\n")
+
+team_receiving <- team_pbp_data %>%
+  filter(
+    play_type == "pass",
+    !is.na(receiver_player_name),
+    !is.na(epa),
+    wp >= 0.1 & wp <= 0.9,  # Same garbage time filter
+    sack == 0,
+    qb_spike == 0,
+    qb_kneel == 0
+  ) %>%
+  group_by(season, posteam) %>%
+  summarise(
+    # Volume metrics
+    targets = n(),
+    completions = sum(complete_pass, na.rm = TRUE),
+    total_receiving_yards = sum(receiving_yards, na.rm = TRUE),
+    
+    # Efficiency metrics
+    receiving_epa_per_target = mean(epa, na.rm = TRUE),
+    catch_rate = mean(complete_pass, na.rm = TRUE),
+    receiving_success_rate = mean(success, na.rm = TRUE),
+    
+    # Advanced metrics
+    cpoe_team = mean(cpoe, na.rm = TRUE),
+    air_epa_per_target = mean(air_epa, na.rm = TRUE),
+    
+    # Explosive plays
+    yards_after_catch_per_completion = ifelse(sum(complete_pass, na.rm = TRUE) > 0,
+                                            sum(yards_after_catch, na.rm = TRUE) / 
+                                            sum(complete_pass, na.rm = TRUE), NA),
+    deep_completion_rate = mean(air_yards >= 20 & complete_pass == 1, na.rm = TRUE),
+    
+    # Scoring
+    receiving_td_rate = sum(pass_touchdown, na.rm = TRUE) / n(),
+    
+    .groups = 'drop'
+  )
+
+# TEAM DEFENSE METRICS
+
+cat("Calculating Team Defense Metrics\n")
+
+team_defense <- team_pbp_data %>%
+  filter(
+    !is.na(epa),
+    play_type %in% c("pass", "run"),
+    wp >= 0.1 & wp <= 0.9  # Same garbage time filter
+  ) %>%
+  group_by(season, defteam) %>%
+  summarise(
+    # Volume
+    defensive_plays = n(),
+    
+    # Overall efficiency (lower is better for defense)
+    def_epa_per_play = mean(epa, na.rm = TRUE),
+    def_success_rate_allowed = mean(success, na.rm = TRUE),
+    
+    # Pass defense
+    pass_plays_faced = sum(play_type == "pass", na.rm = TRUE),
+    def_pass_epa_per_attempt = mean(epa[play_type == "pass"], na.rm = TRUE),
+    def_completion_rate_allowed = mean(complete_pass[play_type == "pass"], na.rm = TRUE),
+    
+    # Run defense  
+    run_plays_faced = sum(play_type == "run", na.rm = TRUE),
+    def_rush_epa_per_attempt = mean(epa[play_type == "run"], na.rm = TRUE),
+    def_rush_yards_per_attempt = mean(rushing_yards[play_type == "run"], na.rm = TRUE),
+    
+    # Turnovers (higher is better for defense)
+    interception_rate = sum(interception, na.rm = TRUE) / sum(play_type == "pass", na.rm = TRUE),
+    fumble_recovery_rate = sum(fumble_lost, na.rm = TRUE) / n(),
+    total_turnover_rate = (sum(interception, na.rm = TRUE) + sum(fumble_lost, na.rm = TRUE)) / n(),
+    
+    # Situational defense
+    third_down_stops = sum(down == 3 & success == 0, na.rm = TRUE),
+    third_down_attempts = sum(down == 3, na.rm = TRUE),
+    third_down_stop_rate = ifelse(sum(down == 3, na.rm = TRUE) > 0,
+                                 sum(down == 3 & success == 0, na.rm = TRUE) / 
+                                 sum(down == 3, na.rm = TRUE), NA),
+    
+    # Red zone defense (inside 20)
+    rz_defensive_plays = sum(yardline_100 <= 20, na.rm = TRUE),
+    rz_td_rate_allowed = ifelse(sum(yardline_100 <= 20, na.rm = TRUE) > 0,
+                               sum((rush_touchdown == 1 | pass_touchdown == 1) & yardline_100 <= 20, na.rm = TRUE) / 
+                               sum(yardline_100 <= 20, na.rm = TRUE), NA),
+    
+    .groups = 'drop'
+  ) %>%
+  # Rename defteam to posteam for consistency
+  rename(posteam = defteam)
+
+
+cat("\nCombining Team Metrics\n")
+
+# Merge all team metrics
+team_supporting_cast <- team_rushing %>%
+  full_join(team_receiving, by = c("season", "posteam")) %>%
+  full_join(team_defense, by = c("season", "posteam")) %>%
+  # Only keep teams with data for all three units
+  filter(!is.na(rush_epa_per_attempt) & !is.na(receiving_epa_per_target) & !is.na(def_epa_per_play))
+
+
+
+
+cat("\nData Quality Summary\n")
+cat("Timeframe:", min(team_supporting_cast$season), "to", max(team_supporting_cast$season), "\n")
+cat("Teams per season (avg):", round(nrow(team_supporting_cast) / 14, 1), "\n")
+
+# Check for missing data
+missing_check <- team_supporting_cast %>%
+  summarise(
+    rushing_na = sum(is.na(rush_epa_per_attempt)),
+    receiving_na = sum(is.na(receiving_epa_per_target)),
+    defense_na = sum(is.na(def_epa_per_play))
+  )
+
+cat("Missing data check:\n")
+print(missing_check)
+
+# Sample of the data
+cat("\nSample team metrics (2023):\n")
+sample_2023 <- team_supporting_cast %>%
+  filter(season == 2023) %>%
+  select(posteam, rush_epa_per_attempt, receiving_epa_per_target, def_epa_per_play) %>%
+  arrange(desc(rush_epa_per_attempt)) %>%
+  head(5)
+
+print(sample_2023)
+
+# Save all datasets to CSV files
+base_path <- "/Users/brucegavins/Projects/brady_supporting_cast_analysis"
+
+# Save team rushing metrics
+write.csv(team_rushing, 
+          file = paste0(base_path, "team_rushing_2011_2024_reg.csv"), 
+          row.names = FALSE)
+
+# Save team receiving metrics  
+write.csv(team_receiving, 
+          file = paste0(base_path, "team_receiving_2011_2024_reg.csv"), 
+          row.names = FALSE)
+
+# Save team defense metrics
+write.csv(team_defense, 
+          file = paste0(base_path, "team_defense_2011_2024_reg.csv"), 
+          row.names = FALSE)
+
+# Save combined supporting cast metrics
+write.csv(team_supporting_cast, 
+          file = paste0(base_path, "team_supporting_cast_2011_2024_reg.csv"), 
+          row.names = FALSE)
+
+# Confirmation messages
+cat("\n=== CSV Files Saved ===\n")
+cat("• team_rushing_2011_2024_reg.csv\n")
+cat("• team_receiving_2011_2024_reg.csv\n") 
+cat("• team_defense_2011_2024_reg.csv\n")
+cat("• team_supporting_cast_2011_2024_reg.csv\n")
+cat("All files saved to:", base_path, "\n")
+
+```
+```{r setup}
+library(tidyverse)
+
+cat("Creating Basic Supporting Cast Metric\n")
+
+#Calculate z-scores for each metric by season
+supporting_cast_zscores <- team_supporting_cast %>%
+  group_by(season) %>%
+  mutate(
+    #rushing metrics
+    z_rush_epa_per_attempt = (rush_epa_per_attempt - mean(rush_epa_per_attempt, na.rm = TRUE)) / sd(rush_epa_per_attempt, na.rm = TRUE),
+    z_rush_success_rate = (rush_success_rate - mean(rush_success_rate, na.rm = TRUE)) / sd(rush_success_rate, na.rm = TRUE),
+    
+    # Receiving metrics (higher is better)
+    z_receiving_epa_per_target = (receiving_epa_per_target - mean(receiving_epa_per_target, na.rm = TRUE)) / sd(receiving_epa_per_target, na.rm = TRUE),
+    z_catch_rate = (catch_rate - mean(catch_rate, na.rm = TRUE)) / sd(catch_rate, na.rm = TRUE),
+    
+    # Defense metrics (LOWER is better for defense, so we flip the sign)
+    z_def_epa_per_play = -1 * (def_epa_per_play - mean(def_epa_per_play, na.rm = TRUE)) / sd(def_epa_per_play, na.rm = TRUE),
+    z_def_success_rate_allowed = -1 * (def_success_rate_allowed - mean(def_success_rate_allowed, na.rm = TRUE)) /         sd(def_success_rate_allowed, na.rm = TRUE)
+  ) %>%
+  ungroup()
+#create composite supporting cast score
+supporting_cast_final <- supporting_cast_zscores %>%
+  mutate(
+    # Create unit composites first
+    rushing_unit_score = (z_rush_epa_per_attempt + z_rush_success_rate) / 2,
+    receiving_unit_score = (z_receiving_epa_per_target + z_catch_rate) / 2,
+    defense_unit_score = (z_def_epa_per_play + z_def_success_rate_allowed) / 2,
+    
+    # Overall supporting cast composite
+    # Weight: 30% rushing, 40% receiving, 30% defense
+    supporting_cast_composite = 0.30 * rushing_unit_score + 0.40 * receiving_unit_score + 0.30 * defense_unit_score
+  )
+
+cat("Supporting cast composite scores calculated\n")
+cat("Total team-seasons:", nrow(supporting_cast_final), "\n")
+
+# Data quality check
+cat("\n=== Data Quality Check ===\n")
+na_check <- supporting_cast_final %>%
+  summarise(
+    na_rushing = sum(is.na(rushing_unit_score)),
+    na_receiving = sum(is.na(receiving_unit_score)),
+    na_defense = sum(is.na(defense_unit_score)),
+    na_composite = sum(is.na(supporting_cast_composite))
+  )
+print(na_check)
+
+# Sample of the final data
+cat("\n=== Sample Supporting Cast Scores (2023) ===\n")
+sample_2023 <- supporting_cast_final %>%
+  filter(season == 2023) %>%
+  select(posteam, rushing_unit_score, receiving_unit_score, defense_unit_score, supporting_cast_composite) %>%
+  arrange(desc(supporting_cast_composite)) %>%
+  mutate(across(where(is.numeric), ~ round(.x, 3))) %>%
+  head(5)
+
+print(sample_2023)
+
+# Distribution summary
+cat("\n=== Composite Score Distribution ===\n")
+print(summary(supporting_cast_final$supporting_cast_composite))
+
+cat("\n=== Key Variables Created ===\n")
+cat("• supporting_cast_with_zscores - z-scores for all metrics\n")
+cat("• supporting_cast_final - complete dataset with composite scores\n")
+cat("• Composite formula: 30% rushing + 40% receiving + 30% defense\n")
+cat("• Higher scores = better supporting cast\n")
+
+# Save the final dataset
+write.csv(supporting_cast_final, 
+          "supporting_cast_with_composite_2011_2024.csv", 
+          row.names = FALSE)
+
+cat("\nFinal dataset saved as: supporting_cast_with_composite_2011_2024.csv\n")
+```
+```{r setup}
+# Top 5 Supporting Casts by Season with Starting QBs Visualization
+
+library(tidyverse)
+library(ggplot2)
+
+cat("=== Creating Top Supporting Casts with QBs Visualization ===\n")
+
+# First, we need to identify the primary QB for each team-season
+# Using your existing QB data (qb_final from the QB analysis)
+
+# Get primary QB for each team-season (highest attempts)
+team_primary_qbs <- qb_final %>%
+  group_by(season, posteam = substr(passer_player_name, 1, 3)) %>%  # Handle team name matching
+  slice_max(pass_attempts, n = 1) %>%
+  select(season, posteam, primary_qb = passer_player_name, qb_attempts = pass_attempts) %>%
+  ungroup()
+
+qb_team_mapping <- qb_final %>%
+  select(season, passer_player_name, pass_attempts) %>%
+  arrange(season, desc(pass_attempts))
+
+# Get top 5 supporting casts by season
+top_supporting_casts_by_season <- supporting_cast_final %>%
+  group_by(season) %>%
+  arrange(desc(supporting_cast_composite)) %>%
+  slice(1:5) %>%
+  mutate(rank = row_number()) %>%
+  ungroup()
+
+# Create the base data for visualization
+viz_data <- top_supporting_casts_by_season %>%
+  select(season, posteam, rank, supporting_cast_composite, 
+         rushing_unit_score, receiving_unit_score, defense_unit_score) %>%
+  mutate(
+    # Round scores for display
+    supporting_cast_composite = round(supporting_cast_composite, 2),
+    rushing_unit_score = round(rushing_unit_score, 2),
+    receiving_unit_score = round(receiving_unit_score, 2),
+    defense_unit_score = round(defense_unit_score, 2),
+    
+    # Create display labels
+    team_label = paste0("#", rank, " ", posteam),
+    composite_label = paste0(supporting_cast_composite)
+  )
+
+# Create the visualization
+top_supporting_cast_plot <- ggplot(viz_data, aes(x = reorder(team_label, -supporting_cast_composite), 
+                                                 y = supporting_cast_composite)) +
+  geom_col(aes(fill = supporting_cast_composite), width = 0.7) +
+  geom_text(aes(label = composite_label), 
+            vjust = -0.3, size = 3, fontface = "bold") +
+  facet_wrap(~season, scales = "free_x", ncol = 3) +
+  scale_fill_gradient2(low = "red", mid = "white", high = "darkgreen", 
+                       midpoint = 0, name = "Supporting\nCast Score") +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 8),
+    strip.text = element_text(size = 10, face = "bold"),
+    plot.title = element_text(size = 14, face = "bold"),
+    plot.subtitle = element_text(size = 12),
+    legend.position = "right",
+    panel.grid.minor = element_blank(),
+    plot.background = element_rect(fill = "white", color = NA),
+    panel.background = element_rect(fill = "white", color = NA)
+  ) +
+  labs(
+    title = "Top 5 NFL Supporting Casts by Season (2011-2024)",
+    subtitle = "Composite score: 30% Rushing + 40% Receiving + 30% Defense",
+    x = "Team (Rank)",
+    y = "Supporting Cast Composite Score",
+  )
+
+# Display the plot
+print(top_supporting_cast_plot)
+
+# Save the plot
+output_path <- "/Users/brucegavins/Projects/brady_supporting_cast_analysis/R-analysis/top_supporting_casts_by_season.png"
+
+ggsave(output_path, 
+       plot = top_supporting_cast_plot,
+       width = 16, height = 20, 
+       dpi = 300, 
+       units = "in",
+       bg = "white")
+
+cat("Visualization saved to:", output_path, "\n")
+
+# Create summary table for manual QB addition
+cat("\n=== Top Supporting Casts Summary (for QB research) ===\n")
+summary_for_qb_research <- viz_data %>%
+  arrange(season, rank) %>%
+  select(season, rank, posteam, supporting_cast_composite)
+
+print(summary_for_qb_research)
+
+# Also create a breakdown by unit performance
+cat("\n=== Unit Performance Breakdown ===\n")
+unit_breakdown <- viz_data %>%
+  arrange(season, rank) %>%
+  select(season, rank, posteam, rushing_unit_score, receiving_unit_score, defense_unit_score)
+
+print(unit_breakdown)
+
+```
+
+
+
+
+
+
