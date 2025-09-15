@@ -1,0 +1,353 @@
+---
+title: "Elite QB Supporting Cast Analysis"
+output: github_document
+---
+
+# Elite QB Supporting Cast Analysis
+
+## Setup & Data Preparation
+
+```{r setup}
+library(tidyverse)
+library(nflfastR)
+
+# Create QB-to-team mapping for elite QBs (2011-2024)
+elite_qb_team_mapping <- tribble(
+  ~passer_player_name, ~season, ~posteam,
+  
+  # Tom Brady
+  "T.Brady", 2011, "NE", "T.Brady", 2012, "NE", "T.Brady", 2013, "NE", 
+  "T.Brady", 2014, "NE", "T.Brady", 2015, "NE", "T.Brady", 2016, "NE",
+  "T.Brady", 2017, "NE", "T.Brady", 2018, "NE", "T.Brady", 2019, "NE",
+  "T.Brady", 2020, "TB", "T.Brady", 2021, "TB", "T.Brady", 2022, "TB",
+  
+  # Peyton Manning
+  "P.Manning", 2011, "IND", "P.Manning", 2012, "DEN", "P.Manning", 2013, "DEN",
+  "P.Manning", 2014, "DEN", "P.Manning", 2015, "DEN",
+  
+  # Aaron Rodgers  
+  "A.Rodgers", 2011, "GB", "A.Rodgers", 2012, "GB", "A.Rodgers", 2013, "GB",
+  "A.Rodgers", 2014, "GB", "A.Rodgers", 2015, "GB", "A.Rodgers", 2016, "GB",
+  "A.Rodgers", 2017, "GB", "A.Rodgers", 2018, "GB", "A.Rodgers", 2019, "GB",
+  "A.Rodgers", 2020, "GB", "A.Rodgers", 2021, "GB", "A.Rodgers", 2022, "GB",
+  "A.Rodgers", 2023, "NYJ",
+  
+  # Drew Brees
+  "D.Brees", 2011, "NO", "D.Brees", 2012, "NO", "D.Brees", 2013, "NO",
+  "D.Brees", 2014, "NO", "D.Brees", 2015, "NO", "D.Brees", 2016, "NO",
+  "D.Brees", 2017, "NO", "D.Brees", 2018, "NO", "D.Brees", 2019, "NO",
+  "D.Brees", 2020, "NO",
+  
+  # Patrick Mahomes
+  "P.Mahomes", 2018, "KC", "P.Mahomes", 2019, "KC", "P.Mahomes", 2020, "KC", 
+  "P.Mahomes", 2021, "KC", "P.Mahomes", 2022, "KC", "P.Mahomes", 2023, "KC",
+  "P.Mahomes", 2024, "KC",
+  
+  # Josh Allen
+  "J.Allen", 2018, "BUF", "J.Allen", 2019, "BUF", "J.Allen", 2020, "BUF",
+  "J.Allen", 2021, "BUF", "J.Allen", 2022, "BUF", "J.Allen", 2023, "BUF",
+  "J.Allen", 2024, "BUF",
+  
+  # Russell Wilson
+  "R.Wilson", 2012, "SEA", "R.Wilson", 2013, "SEA", "R.Wilson", 2014, "SEA",
+  "R.Wilson", 2015, "SEA", "R.Wilson", 2016, "SEA", "R.Wilson", 2017, "SEA",
+  "R.Wilson", 2018, "SEA", "R.Wilson", 2019, "SEA", "R.Wilson", 2020, "SEA",
+  "R.Wilson", 2021, "SEA", "R.Wilson", 2022, "DEN", "R.Wilson", 2023, "DEN",
+  "R.Wilson", 2024, "DEN",
+  
+  # Ben Roethlisberger
+  "B.Roethlisberger", 2011, "PIT", "B.Roethlisberger", 2012, "PIT",
+  "B.Roethlisberger", 2013, "PIT", "B.Roethlisberger", 2014, "PIT",
+  "B.Roethlisberger", 2015, "PIT", "B.Roethlisberger", 2016, "PIT",
+  "B.Roethlisberger", 2017, "PIT", "B.Roethlisberger", 2018, "PIT",
+  "B.Roethlisberger", 2019, "PIT", "B.Roethlisberger", 2020, "PIT",
+  "B.Roethlisberger", 2021, "PIT",
+  
+  # Lamar Jackson
+  "L.Jackson", 2018, "BAL", "L.Jackson", 2019, "BAL", "L.Jackson", 2020, "BAL",
+  "L.Jackson", 2021, "BAL", "L.Jackson", 2022, "BAL", "L.Jackson", 2023, "BAL",
+  "L.Jackson", 2024, "BAL",
+  
+  # Matthew Stafford  
+  "M.Stafford", 2011, "DET", "M.Stafford", 2012, "DET", "M.Stafford", 2013, "DET",
+  "M.Stafford", 2014, "DET", "M.Stafford", 2015, "DET", "M.Stafford", 2016, "DET",
+  "M.Stafford", 2017, "DET", "M.Stafford", 2018, "DET", "M.Stafford", 2019, "DET",
+  "M.Stafford", 2020, "DET", "M.Stafford", 2021, "LAR", "M.Stafford", 2022, "LAR",
+  "M.Stafford", 2023, "LAR", "M.Stafford", 2024, "LAR",
+  
+  # Philip Rivers
+  "P.Rivers", 2011, "SD", "P.Rivers", 2012, "SD", "P.Rivers", 2013, "SD",
+  "P.Rivers", 2014, "SD", "P.Rivers", 2015, "SD", "P.Rivers", 2016, "SD",
+  "P.Rivers", 2017, "LAC", "P.Rivers", 2018, "LAC", "P.Rivers", 2019, "LAC",
+  "P.Rivers", 2020, "IND"
+)
+
+# Define the elite QBs list
+elite_qbs <- c("T.Brady", "P.Manning", "A.Rodgers", "D.Brees", 
+               "P.Mahomes", "J.Allen", "R.Wilson", "B.Roethlisberger", 
+               "L.Jackson", "M.Stafford", "P.Rivers")
+
+cat("Data available:\n")
+cat("QB data:", nrow(qb_final), "seasons\n")
+cat("Supporting cast data:", nrow(supporting_cast_final), "team seasons\n")
+cat("Elite QBs to analyze:", length(elite_qbs), "\n")
+```
+
+## QB Analysis Function
+
+```{r qb-analysis-function}
+# Function to analyze any QB's supporting cast
+analyze_qb_supporting_cast <- function(qb_name) {
+  
+  cat("=== ANALYZING", qb_name, "===\n\n")
+  
+  # Get QB's team-season mappings
+  qb_teams <- elite_qb_team_mapping %>%
+    filter(passer_player_name == qb_name)
+  
+  if(nrow(qb_teams) == 0) {
+    cat("No team mapping found for", qb_name, "\n")
+    return(NULL)
+  }
+  
+  # Get supporting cast data for QB's teams/seasons  
+  qb_supporting_cast <- supporting_cast_final %>%
+    inner_join(qb_teams, by = c("season", "posteam")) %>%
+    arrange(season)
+  
+  if(nrow(qb_supporting_cast) == 0) {
+    cat("No supporting cast data found for", qb_name, "\n")
+    return(NULL)
+  }
+  
+  # Calculate percentile rankings
+  qb_with_percentiles <- supporting_cast_final %>%
+    group_by(season) %>%
+    mutate(supporting_cast_percentile = round(100 * percent_rank(supporting_cast_composite), 1)) %>%
+    ungroup() %>%
+    inner_join(qb_teams, by = c("season", "posteam")) %>%
+    arrange(season)
+  
+  # Get QB performance data
+  qb_performance <- qb_final %>%
+    filter(passer_player_name == qb_name) %>%
+    select(season, qb_composite, epa_per_play, success_rate, cpoe)
+  
+  # Merge QB performance with supporting cast
+  qb_complete <- qb_with_percentiles %>%
+    left_join(qb_performance, by = "season") %>%
+    filter(!is.na(qb_composite))
+  
+  # === ANALYSIS OUTPUT ===
+  
+  # 1. Career Overview
+  cat("Career Overview:\n")
+  cat("Seasons analyzed:", nrow(qb_with_percentiles), "\n")
+  cat("Season range:", min(qb_with_percentiles$season), "-", max(qb_with_percentiles$season), "\n")
+  
+  teams_summary <- qb_with_percentiles %>%
+    count(posteam) %>%
+    arrange(desc(n))
+  cat("Teams:", paste(teams_summary$posteam, collapse = ", "), "\n\n")
+  
+  # 2. Supporting Cast Summary
+  supporting_cast_summary <- qb_with_percentiles %>%
+    summarise(
+      avg_supporting_cast_score = round(mean(supporting_cast_composite, na.rm = TRUE), 3),
+      best_supporting_cast = round(max(supporting_cast_composite, na.rm = TRUE), 3), 
+      worst_supporting_cast = round(min(supporting_cast_composite, na.rm = TRUE), 3),
+      .groups = 'drop'
+    )
+  
+  cat("Supporting Cast Summary:\n")
+  print(supporting_cast_summary)
+  cat("\n")
+  
+  # 3. Best/Worst Seasons
+  best_season <- qb_with_percentiles[which.max(qb_with_percentiles$supporting_cast_composite), ]
+  worst_season <- qb_with_percentiles[which.min(qb_with_percentiles$supporting_cast_composite), ]
+  
+  cat("Best Supporting Cast Season:\n")
+  cat("Year:", best_season$season, "Team:", best_season$posteam, "\n")
+  cat("Score:", best_season$supporting_cast_composite, 
+      "(", best_season$supporting_cast_percentile, "th percentile)\n\n")
+  
+  cat("Worst Supporting Cast Season:\n") 
+  cat("Year:", worst_season$season, "Team:", worst_season$posteam, "\n")
+  cat("Score:", worst_season$supporting_cast_composite,
+      "(", worst_season$supporting_cast_percentile, "th percentile)\n\n")
+  
+  # 4. Performance Correlation (if QB performance data available)
+  if(nrow(qb_complete) > 2) {
+    correlation <- cor(qb_complete$supporting_cast_composite, 
+                      qb_complete$qb_composite, use = "complete.obs")
+    cat("QB Performance vs Supporting Cast Correlation:", round(correlation, 3), "\n")
+    
+    # Performance with good vs poor supporting cast
+    good_cast_seasons <- sum(qb_complete$supporting_cast_composite > 0)
+    poor_cast_seasons <- sum(qb_complete$supporting_cast_composite <= 0)
+    
+    if(good_cast_seasons > 0) {
+      good_cast_performance <- mean(qb_complete$qb_composite[qb_complete$supporting_cast_composite > 0], na.rm = TRUE)
+      cat("Average QB performance with good supporting cast (>0):", round(good_cast_performance, 3), "\n")
+    } else {
+      good_cast_performance <- NA
+      cat("Average QB performance with good supporting cast (>0): No seasons\n")
+    }
+    
+    if(poor_cast_seasons > 0) {
+      poor_cast_performance <- mean(qb_complete$qb_composite[qb_complete$supporting_cast_composite <= 0], na.rm = TRUE)
+      cat("Average QB performance with poor supporting cast (≤0):", round(poor_cast_performance, 3), "\n")
+    } else {
+      poor_cast_performance <- NA
+      cat("Average QB performance with poor supporting cast (≤0): No seasons\n")
+    }
+    
+    # Calculate performance difference only if both exist
+    if(!is.na(good_cast_performance) && !is.na(poor_cast_performance)) {
+      performance_diff <- good_cast_performance - poor_cast_performance
+      cat("Performance difference:", round(performance_diff, 3), "\n")
+    } else {
+      performance_diff <- NA
+      cat("Performance difference: Cannot calculate (insufficient data)\n")
+    }
+    
+    cat("Years with above-average supporting cast:", good_cast_seasons, "\n")
+    cat("Years with below-average supporting cast:", poor_cast_seasons, "\n\n")
+  }
+  
+  # 5. Team Comparison (if multiple teams)
+  if(length(unique(qb_with_percentiles$posteam)) > 1) {
+    cat("Team Comparison:\n")
+    team_comparison <- qb_with_percentiles %>%
+      group_by(posteam) %>%
+      summarise(
+        seasons = n(),
+        avg_supporting_cast = round(mean(supporting_cast_composite), 3),
+        .groups = 'drop'
+      ) %>%
+      arrange(desc(avg_supporting_cast))
+    
+    print(team_comparison)
+    cat("\n")
+  }
+  
+  # Return data for further analysis
+  list(
+    qb_name = qb_name,
+    supporting_cast_data = qb_with_percentiles,
+    performance_data = qb_complete,
+    summary_stats = supporting_cast_summary,
+    correlation = if(exists("correlation")) correlation else NA,
+    performance_difference = if(exists("good_cast_performance") && exists("poor_cast_performance") && 
+                               !is.na(good_cast_performance) && !is.na(poor_cast_performance)) {
+      round(good_cast_performance - poor_cast_performance, 3)
+    } else NA
+  )
+}
+```
+## Individual QB Analyses
+```{r individual-analyses}
+
+# Creates individual variables to hold each qb analysis
+brady_results <- analyze_qb_supporting_cast("T.Brady")
+manning_results <- analyze_qb_supporting_cast("P.Manning")
+rodgers_results <- analyze_qb_supporting_cast("A.Rodgers")
+brees_results <- analyze_qb_supporting_cast("D.Brees")
+mahomes_results <- analyze_qb_supporting_cast("P.Mahomes")
+allen_results <- analyze_qb_supporting_cast("J.Allen")
+wilson_results <- analyze_qb_supporting_cast("R.Wilson")
+roethlisberger_results <- analyze_qb_supporting_cast("B.Roethlisberger")
+jackson_results <- analyze_qb_supporting_cast("L.Jackson")
+stafford_results <- analyze_qb_supporting_cast("M.Stafford")
+rivers_results <- analyze_qb_supporting_cast("P.Rivers")
+```
+## Comparative Analysis Summary
+```{r comparison-summary}
+# Collect all results
+all_results <- list(
+  brady_results, manning_results, rodgers_results, brees_results,
+  mahomes_results, allen_results, wilson_results, roethlisberger_results,
+  jackson_results, stafford_results, rivers_results
+)
+
+# Remove any NULL results
+all_results <- all_results[!sapply(all_results, is.null)]
+
+# Create summary table
+comparative_summary <- tibble(
+  QB = sapply(all_results, function(x) x$qb_name),
+  Correlation = sapply(all_results, function(x) x$correlation),
+  Performance_Difference = sapply(all_results, function(x) x$performance_difference),
+  Avg_Supporting_Cast = sapply(all_results, function(x) x$summary_stats$avg_supporting_cast_score),
+  Best_Supporting_Cast = sapply(all_results, function(x) x$summary_stats$best_supporting_cast),
+  Worst_Supporting_Cast = sapply(all_results, function(x) x$summary_stats$worst_supporting_cast)
+) %>%
+  arrange(desc(Performance_Difference))
+
+cat("=== COMPARATIVE SUMMARY: ELITE QB SUPPORTING CAST ANALYSIS ===\n\n")
+print(comparative_summary)
+
+cat("\n=== KEY INSIGHTS ===\n")
+cat("QBs ranked by performance difference (good vs poor supporting cast):\n")
+cat("1. Highest dependency on supporting cast:", comparative_summary$QB[1], 
+    "(", comparative_summary$Performance_Difference[1], ")\n")
+cat("2. Lowest dependency on supporting cast:", comparative_summary$QB[nrow(comparative_summary)], 
+    "(", comparative_summary$Performance_Difference[nrow(comparative_summary)], ")\n")
+
+cat("\nBrady's rank in supporting cast dependency:", 
+    which(comparative_summary$QB == "T.Brady"), "out of", nrow(comparative_summary), "QBs\n")
+```
+## Visualization
+```{r visualization}
+# Create visualization of performance differences
+dependency_plot <- comparative_summary %>%
+  filter(!is.na(Performance_Difference)) %>%  # Remove QBs with NA values
+  mutate(QB_clean = str_replace(QB, "\\.", " ")) %>%
+  ggplot(aes(x = reorder(QB_clean, Performance_Difference), y = Performance_Difference)) +
+  geom_col(aes(fill = QB_clean == "T Brady"), show.legend = FALSE) +
+  scale_fill_manual(values = c("FALSE" = "steelblue", "TRUE" = "red")) +
+  coord_flip() +
+  theme_minimal() +
+  labs(
+    title = "Elite QB Supporting Cast Dependency",
+    subtitle = "Performance difference between good vs poor supporting cast",
+    x = "Quarterback",
+    y = "Performance Difference (Higher = More Dependent on Supporting Cast)",
+    caption = "Note: J. Allen, P. Mahomes, and P. Manning excluded - these QBs never played with below-average supporting casts"
+  ) +
+  theme(
+    plot.title = element_text(size = 14, face = "bold"),
+    plot.subtitle = element_text(size = 12),
+    plot.caption = element_text(size = 10, hjust = 0)
+  )
+
+print(dependency_plot)
+
+# Save the plot
+ggsave("outputs/elite_qb_supporting_cast_dependency.png", 
+       plot = dependency_plot, width = 12, height = 8, dpi = 300, bg = "white")
+```
+## Final Analysis
+```{r final-analysis}
+cat("=== BRADY IN CONTEXT ===\n\n")
+
+brady_row <- comparative_summary %>% filter(QB == "T.Brady")
+
+cat("Brady's Supporting Cast Dependency Analysis:\n")
+cat("- Performance difference:", brady_row$Performance_Difference, "\n")
+cat("- Rank among elite QBs:", which(comparative_summary$QB == "T.Brady"), "out of", nrow(comparative_summary), "\n")
+cat("- Correlation with supporting cast:", brady_row$Correlation, "\n")
+cat("- Average supporting cast quality:", brady_row$Avg_Supporting_Cast, "\n\n")
+
+if(brady_row$Performance_Difference > median(comparative_summary$Performance_Difference, na.rm = TRUE)) {
+  cat("CONCLUSION: Brady shows ABOVE AVERAGE dependency on supporting cast quality compared to elite peers.\n")
+} else {
+  cat("CONCLUSION: Brady shows BELOW AVERAGE dependency on supporting cast quality compared to elite peers.\n")
+}
+
+cat("\nThis suggests Brady's success pattern is", 
+    ifelse(brady_row$Performance_Difference > median(comparative_summary$Performance_Difference, na.rm = TRUE), 
+           "MORE", "LESS"), 
+    "dependent on supporting cast than typical for elite QBs.\n")
+```
